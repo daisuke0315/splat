@@ -334,6 +334,18 @@ print("\n   - 相対距離の保存性:")
 print(f"   - 平均誤差: {final_mean_preservation_error:.6f}")
 print(f"   - 標準偏差: {final_std_preservation_error:.6f}")
 
+print("\n   - 点間の相対距離:")
+n_points = len(final_points)
+for i in range(n_points):
+    for j in range(i+1, n_points):
+        source_dist = final_source_distances[i,j]
+        target_dist = final_target_distances[i,j]
+        diff = abs(source_dist - target_dist)
+        print(f"     点{i+1}-点{j+1}間:")
+        print(f"       ガウシャン点群の距離: {source_dist:.3f}mm")
+        print(f"       CT点群の距離: {target_dist:.3f}mm")
+        print(f"       差分: {diff:.3f}mm")
+
 # アニメーションの作成と保存
 print("\n作成したアニメーションを保存中...")
 create_registration_animation(points_history)
