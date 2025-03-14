@@ -317,6 +317,13 @@ print(f"   - 標準偏差: {std_error:.3f}mm")
 print(f"   - 最大誤差: {max_error:.3f}mm")
 print(f"   - 最小誤差: {min_error:.3f}mm")
 
+print("\n   - 各点の誤差:")
+for i, (fp, cp, dist) in enumerate(zip(final_points, ct_points, final_distances)):
+    print(f"     点{i+1}:")
+    print(f"       ガウシャン点群: [{fp[0]:.3f}, {fp[1]:.3f}, {fp[2]:.3f}]")
+    print(f"       CT点群: [{cp[0]:.3f}, {cp[1]:.3f}, {cp[2]:.3f}]")
+    print(f"       誤差: {dist:.3f}mm")
+
 # 相対距離の保存性も評価
 final_source_distances = calculate_relative_distances(final_points)
 final_target_distances = calculate_relative_distances(ct_points)
