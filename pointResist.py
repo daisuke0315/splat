@@ -62,11 +62,14 @@ def calculate_deflection_coefficient(point1, point2):
     point2: [x2, y2, z2] 2点目の座標
     戻り値: たわみ係数 (mm/mm)
     """
-    dx = point2[0] - point1[0]
+    # Y座標の差分
+    dy = point2[1] - point1[1]
+    # Z座標の差分
     dz = point2[2] - point1[2]
     
-    if dx != 0:
-        deflection_coefficient = dz / dx
+    # たわみ係数を計算 (dz/dy)
+    if dy != 0:
+        deflection_coefficient = dz / dy
     else:
         deflection_coefficient = 0
         
@@ -84,13 +87,13 @@ def correct_couch_deflection(points, reference_point1=None, reference_point2=Non
         reference_point2 = points[-1]
     
     deflection_coefficient = calculate_deflection_coefficient(reference_point1, reference_point2)
-    print(f"   - 基準点1: X={reference_point1[0]:.1f}, Z={reference_point1[2]:.1f}")
-    print(f"   - 基準点2: X={reference_point2[0]:.1f}, Z={reference_point2[2]:.1f}")
+    print(f"   - 基準点1: Y={reference_point1[1]:.1f}, Z={reference_point1[2]:.1f}")
+    print(f"   - 基準点2: Y={reference_point2[1]:.1f}, Z={reference_point2[2]:.1f}")
     print(f"   - 計算されたたわみ係数: {deflection_coefficient:.6f} mm/mm")
     
     corrected_points = points.copy()
-    x_offset = reference_point1[0]
-    corrected_points[:, 2] -= deflection_coefficient * (corrected_points[:, 0] - x_offset)
+    y_offset = reference_point1[1]  # 基準点1のY座標を基準にする
+    corrected_points[:, 2] -= deflection_coefficient * (corrected_points[:, 1] - y_offset)
     
     # 補正前後の差分を表示
     print("\n   - 補正前後のZ座標の変化:")
