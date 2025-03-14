@@ -300,26 +300,31 @@ points_history.append({
 # 8. 最終評価
 # ================================================
 print("\n8. 最終評価")
-print("   - 位置合わせ後の点群間の誤差を計算")
+print("   - 位置合わせ後の対応点間の誤差を計算")
 
-# 点間距離の計算
+# 対応する点間の距離を計算
 final_distances = calculate_point_distances(final_points, ct_points)
 mean_error = np.mean(final_distances)
 std_error = np.std(final_distances)
 max_error = np.max(final_distances)
 min_error = np.min(final_distances)
 
-print(f"   - 平均誤差: {mean_error:.3f}mm")
-print(f"   - 標準偏差: {std_error:.3f}mm")
-print(f"   - 最大誤差: {max_error:.3f}mm")
-print(f"   - 最小誤差: {min_error:.3f}mm")
+print(f"   - 対応点間の誤差統計:")
+print(f"     - 平均誤差: {mean_error:.3f}mm")
+print(f"     - 標準偏差: {std_error:.3f}mm")
+print(f"     - 最大誤差: {max_error:.3f}mm")
+print(f"     - 最小誤差: {min_error:.3f}mm")
 
-print("\n   - 各点の誤差:")
+print("\n   - 対応点ごとの誤差:")
+point_names = ["左上", "右上", "右下", "左下"]
 for i, (fp, cp, dist) in enumerate(zip(final_points, ct_points, final_distances)):
-    print(f"     点{i+1}:")
+    print(f"     点{i+1} ({point_names[i]}):")
     print(f"       ガウシャン点群: [{fp[0]:.3f}, {fp[1]:.3f}, {fp[2]:.3f}]")
     print(f"       CT点群: [{cp[0]:.3f}, {cp[1]:.3f}, {cp[2]:.3f}]")
     print(f"       誤差: {dist:.3f}mm")
+    # 座標ごとの誤差も計算
+    coord_diff = np.abs(fp - cp)
+    print(f"       座標ごとの誤差: X={coord_diff[0]:.3f}mm, Y={coord_diff[1]:.3f}mm, Z={coord_diff[2]:.3f}mm")
 
 # 相対距離の保存性も評価
 final_source_distances = calculate_relative_distances(final_points)
@@ -328,20 +333,20 @@ final_mean_preservation_error, final_std_preservation_error = calculate_distance
     final_source_distances, final_target_distances)
 
 print("\n   - 相対距離の保存性:")
-print(f"   - 平均誤差: {final_mean_preservation_error:.6f}")
-print(f"   - 標準偏差: {final_std_preservation_error:.6f}")
+print(f"     - 平均誤差: {final_mean_preservation_error:.6f}")
+print(f"     - 標準偏差: {final_std_preservation_error:.6f}")
 
-print("\n   - 点間の相対距離:")
-n_points = len(final_points)
+print("\n   - 対応する辺の長さの比較:")
 for i in range(n_points):
     for j in range(i+1, n_points):
         source_dist = final_source_distances[i,j]
         target_dist = final_target_distances[i,j]
         diff = abs(source_dist - target_dist)
-        print(f"     点{i+1}-点{j+1}間:")
+        print(f"     {point_names[i]}-{point_names[j]}間:")
         print(f"       ガウシャン点群の距離: {source_dist:.3f}mm")
         print(f"       CT点群の距離: {target_dist:.3f}mm")
         print(f"       差分: {diff:.3f}mm")
+        print(f"       相対誤差: {(diff/target_dist*100):.2f}%")
 
 # アニメーションの作成と保存
 print("\n作成したアニメーションを保存中...")
