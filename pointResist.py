@@ -322,65 +322,38 @@ print("\n=== 点群位置合わせプロセス開始 ===")
 print("\n1. カウチのたわみ補正")
 print("   - CT点群に対してたわみ補正を適用")
 
-# 利用可能な点の表示
-print("\n利用可能なCT点群の座標:")
-for i, point in enumerate(ct_points):
-    print(f"点{i+1}: X={point[0]:.1f}, Y={point[1]:.1f}, Z={point[2]:.1f}")
-
 ct_points_original = ct_points.copy()
 ct_points = correct_couch_deflection(ct_points, deflection_point1, deflection_point2)
-visualize_deflection_correction(ct_points_original, ct_points)
-print("   - たわみ補正の結果を図として保存")
-print("   - 補正前後のZ座標の変化:")
-for i in range(len(ct_points)):
-    diff = ct_points[i, 2] - ct_points_original[i, 2]
-    print(f"     点{i+1}: {diff:.3f} mm")
 
 # ================================================
 # 2. 初期評価
 # ================================================
 print("\n2. 初期評価")
-print("   - 変換前の相対距離の保存性を計算")
 initial_source_distances = calculate_relative_distances(gaussian_points)
 initial_target_distances = calculate_relative_distances(ct_points)
 initial_mean_error, initial_std_error = calculate_distance_preservation_error(
     initial_source_distances, initial_target_distances)
-print(f"   - 平均誤差: {initial_mean_error:.6f}")
-print(f"   - 標準偏差: {initial_std_error:.6f}")
 
 # ================================================
 # 3. 重心位置合わせ
 # ================================================
 print("\n3. 重心位置合わせ")
-print("   - ガウシャン点群と CT点群の重心を計算")
 source_centroid = np.mean(gaussian_points, axis=0)
 target_centroid = np.mean(ct_points, axis=0)
 centered_gaussian = gaussian_points - source_centroid
 centered_ct = ct_points - target_centroid
-print("   - 両点群を重心中心に移動")
 
 # ================================================
 # 4. スケール補正
 # ================================================
 print("\n4. スケール補正")
-print("   - 相対距離に基づくスケール係数の計算")
 scale_factor = calculate_scale_factor(centered_gaussian, centered_ct)
 scaled_gaussian = centered_gaussian * scale_factor
-print(f"   - 計算されたスケール係数: {scale_factor:.6f}")
-
-# スケール補正後の評価
-scaled_distances = calculate_relative_distances(scaled_gaussian)
-scale_mean_error, scale_std_error = calculate_distance_preservation_error(
-    scaled_distances, initial_target_distances)
-print("   - スケール補正後の誤差評価:")
-print(f"     - 平均誤差: {scale_mean_error:.6f}")
-print(f"     - 標準偏差: {scale_std_error:.6f}")
 
 # ================================================
 # 5. 回転補正
 # ================================================
 print("\n5. 回転補正（SVD法）")
-print("   - 最適な回転行列を計算")
 H = np.dot(scaled_gaussian.T, centered_ct)
 U, S, Vt = np.linalg.svd(H)
 rotation_matrix = np.dot(Vt.T, U.T)
@@ -390,45 +363,25 @@ if np.linalg.det(rotation_matrix) < 0:
     Vt[-1, :] *= -1
     rotation_matrix = np.dot(Vt.T, U.T)
 
-r = Rotation.from_matrix(rotation_matrix)
-euler_angles = r.as_euler('xyz', degrees=True)
-print(f"   - 推定された回転角度 (xyz, 度): {euler_angles}")
-
 rotated_gaussian = np.dot(scaled_gaussian, rotation_matrix.T)
-
-# 回転後の評価
-rotated_distances = calculate_relative_distances(rotated_gaussian)
-rotation_mean_error, rotation_std_error = calculate_distance_preservation_error(
-    rotated_distances, initial_target_distances)
-print("   - 回転補正後の誤差評価:")
-print(f"     - 平均誤差: {rotation_mean_error:.6f}")
-print(f"     - 標準偏差: {rotation_std_error:.6f}")
 
 # ================================================
 # 6. 最終平行移動
 # ================================================
 print("\n6. 最終平行移動")
-print("   - 重心位置に基づく平行移動を適用")
 translated_gaussian = rotated_gaussian + target_centroid
-
-# プロクルステス誤差の計算
-procrustes_error = calculate_procrustes_error(translated_gaussian, ct_points)
-print(f"   - プロクルステス誤差: {procrustes_error:.6f}")
 
 # ================================================
 # 7. ICPによる微調整
 # ================================================
 print("\n7. ICPによる微調整")
-print("   - Open3Dを使用したICPアルゴリズムの適用")
 source = o3d.geometry.PointCloud()
 source.points = o3d.utility.Vector3dVector(translated_gaussian)
 
 target = o3d.geometry.PointCloud()
 target.points = o3d.utility.Vector3dVector(ct_points)
 
-threshold = 5.0  # 固定閾値を使用
-print(f"   - 使用するICP閾値: {threshold:.2f}mm")
-
+threshold = 5.0
 reg_p2p = o3d.pipelines.registration.registration_icp(
     source, target, threshold,
     np.identity(4),
@@ -436,63 +389,7 @@ reg_p2p = o3d.pipelines.registration.registration_icp(
     o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000)
 )
 
-# ================================================
-# 8. 最終評価
-# ================================================
-print("\n8. 最終評価")
 source.transform(reg_p2p.transformation)
 final_points = np.asarray(source.points)
-
-# 最終的な誤差評価
-final_distances = calculate_point_distances(final_points, ct_points)
-print("   - 点ごとの最終誤差:")
-for i, dist in enumerate(final_distances):
-    print(f"     点{i+1}: {dist:.3f} mm")
-print(f"   - 最終平均誤差: {np.mean(final_distances):.3f} ± {np.std(final_distances):.3f} mm")
-
-# 正規性の評価
-p_value = visualize_distances(final_distances, "最終位置合わせ距離")
-print(f"   - 誤差分布の正規性検定 p値: {p_value:.4f}")
-
-# ================================================
-# 9. 結果の保存
-# ================================================
-print("\n9. 結果の保存")
-filename = f"registration_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-print(f"   - 詳細な結果を保存: {filename}")
-with open(filename, "w") as f:
-    f.write("位置合わせ結果\n")
-    f.write("==============\n\n")
-    f.write("初期評価\n")
-    f.write(f"初期相対距離保存性の誤差: {initial_mean_error:.6f} ± {initial_std_error:.6f}\n\n")
-    
-    f.write("スケール解析\n")
-    f.write(f"計算されたスケール係数: {scale_factor:.6f}\n")
-    f.write(f"スケール補正後の相対距離保存性: {scale_mean_error:.6f} ± {scale_std_error:.6f}\n\n")
-    
-    f.write("回転解析\n")
-    f.write(f"オイラー角 (xyz, 度): {euler_angles}\n")
-    f.write(f"回転行列:\n{rotation_matrix}\n")
-    f.write(f"回転補正後の相対距離保存性: {rotation_mean_error:.6f} ± {rotation_std_error:.6f}\n\n")
-    
-    f.write("最終評価\n")
-    f.write(f"プロクルステス誤差: {procrustes_error:.6f}\n")
-    f.write(f"最終平均誤差: {np.mean(final_distances):.3f} ± {np.std(final_distances):.3f} mm\n")
-    f.write(f"誤差分布の正規性検定 p値: {p_value:.4f}\n")
-    f.write(f"点ごとの誤差: {final_distances}\n")
-
-# ================================================
-# 10. 可視化
-# ================================================
-print("\n10. 3D可視化")
-print("   - 青: 変換後のガウシャン点群")
-print("   - 緑: CT点群")
-print("   - ウィンドウを閉じると処理が完了します")
-
-# 最終的な可視化
-o3d.visualization.draw_geometries([
-    source.paint_uniform_color([0, 0, 1]),  # 青
-    target.paint_uniform_color([0, 1, 0])   # 緑
-], window_name="最終結果")
 
 print("\n=== 処理完了 ===")
