@@ -3,7 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 from scipy.spatial.transform import Rotation
-from scipy.stats import norm
+from scipy.stats import norm, shapiro
+from sklearn.metrics import mean_squared_error
+import pandas as pd
 
 # ガウシャン座標とCT座標のデータ
 gaussian_points = np.array([
@@ -84,7 +86,6 @@ def visualize_distances(distances, title="Point Distances"):
     plt.close()
     
     # Shapiro-Wilk検定
-    from scipy.stats import shapiro
     stat, p_value = shapiro(distances)
     return p_value
 
@@ -113,6 +114,131 @@ def estimate_initial_threshold(source, target):
     # 重心間の距離の10%を閾値として使用
     initial_distance = np.linalg.norm(source_centroid - target_centroid)
     return initial_distance * 0.1
+
+def calculate_error_metrics(distances):
+    """詳細な誤差指標を計算"""
+    metrics = {
+        'mean': np.mean(distances),
+        'std': np.std(distances),
+        'median': np.median(distances),
+        'max': np.max(distances),
+        'min': np.min(distances),
+        'p95': np.percentile(distances, 95),
+        'p99': np.percentile(distances, 99),
+        'rmse': np.sqrt(mean_squared_error(np.zeros_like(distances), distances))
+    }
+    return metrics
+
+def visualize_error_distribution(distances, title="Error Distribution"):
+    """誤差分布の詳細な可視化"""
+    plt.figure(figsize=(12, 8))
+    
+    # メインのヒストグラム
+    plt.subplot(2, 1, 1)
+    n, bins, patches = plt.hist(distances, bins='auto', density=True, 
+                              color='blue', alpha=0.7, label='Observed')
+    
+    # 正規分布フィッティング
+    mu, std = norm.fit(distances)
+    x = np.linspace(min(distances), max(distances), 100)
+    p = norm.pdf(x, mu, std)
+    plt.plot(x, p, 'r-', lw=2, label=f'Normal fit\nμ={mu:.2f}, σ={std:.2f}')
+    
+    plt.title(f"{title}\nShapiro-Wilk test p-value: {shapiro(distances)[1]:.4f}")
+    plt.xlabel("Error (mm)")
+    plt.ylabel("Density")
+    plt.grid(True)
+    plt.legend()
+    
+    # Q-Qプロット
+    plt.subplot(2, 1, 2)
+    from scipy.stats import probplot
+    probplot(distances, dist="norm", plot=plt)
+    plt.grid(True)
+    
+    plt.tight_layout()
+    plt.savefig(f"error_distribution_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+    plt.close()
+
+def perform_icp_with_scale(source_points, target_points, threshold=5.0, max_iteration=2000):
+    """スケール最適化を含むICPレジストレーション"""
+    source = o3d.geometry.PointCloud()
+    source.points = o3d.utility.Vector3dVector(source_points)
+    
+    target = o3d.geometry.PointCloud()
+    target.points = o3d.utility.Vector3dVector(target_points)
+    
+    # 初期位置合わせ（重心を一致）
+    source_centroid = np.mean(source_points, axis=0)
+    target_centroid = np.mean(target_points, axis=0)
+    init_translation = target_centroid - source_centroid
+    
+    # 初期変換行列の作成
+    init_transform = np.eye(4)
+    init_transform[:3, 3] = init_translation
+    
+    # ICPレジストレーション（スケール最適化含む）
+    reg_p2p = o3d.pipelines.registration.registration_icp(
+        source, target, threshold, init_transform,
+        o3d.pipelines.registration.TransformationEstimationForScale(),
+        o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iteration)
+    )
+    
+    # 変換後の点群を取得
+    source.transform(reg_p2p.transformation)
+    transformed_points = np.asarray(source.points)
+    
+    return transformed_points, reg_p2p
+
+def analyze_registration(source, target, transformed, transformation):
+    """レジストレーション結果の詳細な分析"""
+    # 誤差計算
+    distances = np.linalg.norm(transformed - target, axis=1)
+    metrics = calculate_error_metrics(distances)
+    
+    # スケール係数の抽出
+    scale = np.linalg.norm(transformation[:3, :3], ord='fro') / np.sqrt(3)
+    
+    # 回転行列の抽出と角度計算
+    rotation_matrix = transformation[:3, :3] / scale
+    r = Rotation.from_matrix(rotation_matrix)
+    euler_angles = r.as_euler('xyz', degrees=True)
+    
+    # 並進ベクトルの抽出
+    translation = transformation[:3, 3]
+    
+    return {
+        'error_metrics': metrics,
+        'scale': scale,
+        'euler_angles': euler_angles,
+        'translation': translation,
+        'distances': distances
+    }
+
+def save_detailed_results(results, filename):
+    """詳細な結果をファイルに保存"""
+    with open(filename, 'w') as f:
+        f.write("Registration Analysis Results\n")
+        f.write("===========================\n\n")
+        
+        f.write("Error Metrics\n")
+        f.write("-------------\n")
+        metrics = results['error_metrics']
+        for key, value in metrics.items():
+            f.write(f"{key}: {value:.3f} mm\n")
+        
+        f.write("\nTransformation Parameters\n")
+        f.write("------------------------\n")
+        f.write(f"Scale factor: {results['scale']:.6f}\n")
+        f.write(f"Euler angles (xyz, degrees): {results['euler_angles']}\n")
+        f.write(f"Translation vector: {results['translation']}\n")
+        
+        # 詳細な統計情報
+        distances = results['distances']
+        df = pd.DataFrame(distances, columns=['Error'])
+        f.write("\nDetailed Statistics\n")
+        f.write("-----------------\n")
+        f.write(df.describe().to_string())
 
 # ================================================
 # 1. 初期評価（変換前の相対距離の保存性）
@@ -240,6 +366,46 @@ with open(f"registration_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
     f.write(f"Point-wise errors: {final_distances}\n")
 
 # 最終的な可視化
+o3d.visualization.draw_geometries([
+    source.paint_uniform_color([0, 0, 1]),  # 青
+    target.paint_uniform_color([0, 1, 0])   # 緑
+], window_name="最終結果")
+
+# メイン処理
+print("Registration Analysis Started")
+print("===========================")
+
+# ICPレジストレーション（スケール最適化含む）
+transformed_points, reg_result = perform_icp_with_scale(
+    gaussian_points, ct_points, threshold=5.0)
+
+# 結果の分析
+results = analyze_registration(
+    gaussian_points, ct_points, transformed_points, reg_result.transformation)
+
+# 結果の表示
+print("\nError Metrics:")
+for key, value in results['error_metrics'].items():
+    print(f"{key}: {value:.3f} mm")
+
+print("\nTransformation Parameters:")
+print(f"Scale factor: {results['scale']:.6f}")
+print(f"Euler angles (xyz, degrees): {results['euler_angles']}")
+print(f"Translation vector: {results['translation']}")
+
+# 誤差分布の可視化
+visualize_error_distribution(results['distances'], "Registration Error Distribution")
+
+# 詳細な結果の保存
+save_detailed_results(results, 
+    f"detailed_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+
+# 最終的な可視化
+source = o3d.geometry.PointCloud()
+source.points = o3d.utility.Vector3dVector(transformed_points)
+target = o3d.geometry.PointCloud()
+target.points = o3d.utility.Vector3dVector(ct_points)
+
 o3d.visualization.draw_geometries([
     source.paint_uniform_color([0, 0, 1]),  # 青
     target.paint_uniform_color([0, 1, 0])   # 緑
