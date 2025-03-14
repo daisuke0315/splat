@@ -295,6 +295,34 @@ points_history.append({
     'description': 'After ICP Refinement'
 })
 
+# ================================================
+# 8. 最終評価
+# ================================================
+print("\n8. 最終評価")
+print("   - 位置合わせ後の点群間の誤差を計算")
+
+# 点間距離の計算
+final_distances = calculate_point_distances(final_points, ct_points)
+mean_error = np.mean(final_distances)
+std_error = np.std(final_distances)
+max_error = np.max(final_distances)
+min_error = np.min(final_distances)
+
+print(f"   - 平均誤差: {mean_error:.3f}mm")
+print(f"   - 標準偏差: {std_error:.3f}mm")
+print(f"   - 最大誤差: {max_error:.3f}mm")
+print(f"   - 最小誤差: {min_error:.3f}mm")
+
+# 相対距離の保存性も評価
+final_source_distances = calculate_relative_distances(final_points)
+final_target_distances = calculate_relative_distances(ct_points)
+final_mean_preservation_error, final_std_preservation_error = calculate_distance_preservation_error(
+    final_source_distances, final_target_distances)
+
+print("\n   - 相対距離の保存性:")
+print(f"   - 平均誤差: {final_mean_preservation_error:.6f}")
+print(f"   - 標準偏差: {final_std_preservation_error:.6f}")
+
 # アニメーションの作成と保存
 print("\n作成したアニメーションを保存中...")
 create_registration_animation(points_history)
