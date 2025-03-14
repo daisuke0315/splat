@@ -8,10 +8,10 @@ import matplotlib.animation as animation
 
 # ガウシャン座標とCT座標のデータ
 gaussian_points = np.array([
-    [-5.174, 6.748, 1.302],
-    [-3.358,6.528, -1.506],
-    [5.735, 4.203,-2.266],
-    [5.922,3.807,-0.368]
+    [-2.73, 6.838, 4.019],
+    [-2.612,7.06, 0.946],
+    [5.298, 5.111,-2.845],
+    [4.223,5.662,4.185]
 ])
 
 
@@ -337,6 +337,7 @@ print(f"     - 平均誤差: {final_mean_preservation_error:.6f}")
 print(f"     - 標準偏差: {final_std_preservation_error:.6f}")
 
 print("\n   - 対応する辺の長さの比較:")
+n_points = len(final_points)  # 点の数を定義
 for i in range(n_points):
     for j in range(i+1, n_points):
         source_dist = final_source_distances[i,j]
