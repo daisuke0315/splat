@@ -2,6 +2,9 @@ import open3d as o3d
 import numpy as np
 from scipy.spatial.transform import Rotation
 from sklearn.metrics import mean_squared_error
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+import matplotlib.animation as animation
 
 # ガウシャン座標とCT座標のデータ
 gaussian_points = np.array([
@@ -103,10 +106,66 @@ def correct_couch_deflection(points, reference_point1=None, reference_point2=Non
     
     return corrected_points
 
+def create_registration_animation(all_points_history, title="Point Cloud Registration Process"):
+    """位置合わせの過程をアニメーションとして作成"""
+    fig = plt.figure(figsize=(12, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    def update(frame):
+        ax.clear()
+        points = all_points_history[frame]
+        
+        # ガウシャン点群（青）
+        ax.scatter(points['gaussian'][:, 0], points['gaussian'][:, 1], points['gaussian'][:, 2], 
+                  c='blue', label='Gaussian Points')
+        
+        # CT点群（緑）
+        ax.scatter(points['ct'][:, 0], points['ct'][:, 1], points['ct'][:, 2], 
+                  c='green', label='CT Points')
+        
+        ax.set_xlabel('X (mm)')
+        ax.set_ylabel('Y (mm)')
+        ax.set_zlabel('Z (mm)')
+        ax.set_title(f'Step {frame + 1}: {points["description"]}')
+        ax.legend()
+        
+        # 視点を固定
+        ax.view_init(elev=20, azim=45)
+        
+        # スケールを統一
+        all_points = np.vstack([points['gaussian'], points['ct']])
+        max_range = np.array([all_points[:, 0].max() - all_points[:, 0].min(),
+                            all_points[:, 1].max() - all_points[:, 1].min(),
+                            all_points[:, 2].max() - all_points[:, 2].min()]).max() / 2.0
+        mid_x = (all_points[:, 0].max() + all_points[:, 0].min()) * 0.5
+        mid_y = (all_points[:, 1].max() + all_points[:, 1].min()) * 0.5
+        mid_z = (all_points[:, 2].max() + all_points[:, 2].min()) * 0.5
+        ax.set_xlim(mid_x - max_range, mid_x + max_range)
+        ax.set_ylim(mid_y - max_range, mid_y + max_range)
+        ax.set_zlim(mid_z - max_range, mid_z + max_range)
+    
+    anim = FuncAnimation(fig, update, frames=len(all_points_history),
+                        interval=2000, blit=False)
+    
+    # アニメーションを保存
+    writer = animation.FFMpegWriter(fps=1, bitrate=1800)
+    anim.save('registration_process.mp4', writer=writer)
+    plt.close()
+
 # ================================================
 # メイン処理
 # ================================================
 print("\n=== 点群位置合わせプロセス開始 ===")
+
+# アニメーション用の履歴
+points_history = []
+
+# 初期状態を保存
+points_history.append({
+    'gaussian': gaussian_points,
+    'ct': ct_points,
+    'description': 'Initial State'
+})
 
 # ================================================
 # 1. カウチのたわみ補正
@@ -116,6 +175,12 @@ print("   - CT点群に対してたわみ補正を適用")
 
 ct_points_original = ct_points.copy()
 ct_points = correct_couch_deflection(ct_points, deflection_point1, deflection_point2)
+
+points_history.append({
+    'gaussian': gaussian_points,
+    'ct': ct_points,
+    'description': 'After Deflection Correction'
+})
 
 # ================================================
 # 2. 初期評価
@@ -140,6 +205,12 @@ centered_gaussian = gaussian_points - source_centroid
 centered_ct = ct_points - target_centroid
 print("   - 両点群を重心中心に移動")
 
+points_history.append({
+    'gaussian': centered_gaussian,
+    'ct': centered_ct,
+    'description': 'After Centering'
+})
+
 # ================================================
 # 4. スケール補正
 # ================================================
@@ -148,6 +219,12 @@ print("   - 相対距離に基づくスケール係数の計算")
 scale_factor = calculate_scale_factor(centered_gaussian, centered_ct)
 scaled_gaussian = centered_gaussian * scale_factor
 print(f"   - 計算されたスケール係数: {scale_factor:.6f}")
+
+points_history.append({
+    'gaussian': scaled_gaussian,
+    'ct': centered_ct,
+    'description': 'After Scaling'
+})
 
 # ================================================
 # 5. 回転補正
@@ -169,12 +246,24 @@ print(f"   - 推定された回転角度 (xyz, 度): {euler_angles}")
 
 rotated_gaussian = np.dot(scaled_gaussian, rotation_matrix.T)
 
+points_history.append({
+    'gaussian': rotated_gaussian,
+    'ct': centered_ct,
+    'description': 'After Rotation'
+})
+
 # ================================================
 # 6. 最終平行移動
 # ================================================
 print("\n6. 最終平行移動")
 print("   - 重心位置に基づく平行移動を適用")
 translated_gaussian = rotated_gaussian + target_centroid
+
+points_history.append({
+    'gaussian': translated_gaussian,
+    'ct': ct_points,
+    'description': 'After Translation'
+})
 
 # ================================================
 # 7. ICPによる微調整
@@ -200,11 +289,15 @@ reg_p2p = o3d.pipelines.registration.registration_icp(
 source.transform(reg_p2p.transformation)
 final_points = np.asarray(source.points)
 
-# 最終的な誤差評価
-final_distances = calculate_point_distances(final_points, ct_points)
-print("\n   - 点ごとの最終誤差:")
-for i, dist in enumerate(final_distances):
-    print(f"     点{i+1}: {dist:.3f} mm")
-print(f"   - 最終平均誤差: {np.mean(final_distances):.3f} ± {np.std(final_distances):.3f} mm")
+points_history.append({
+    'gaussian': final_points,
+    'ct': ct_points,
+    'description': 'After ICP Refinement'
+})
+
+# アニメーションの作成と保存
+print("\n作成したアニメーションを保存中...")
+create_registration_animation(points_history)
+print("アニメーションを 'registration_process.mp4' として保存しました")
 
 print("\n=== 処理完了 ===")
