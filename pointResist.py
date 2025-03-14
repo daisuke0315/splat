@@ -22,6 +22,11 @@ ct_points = np.array([
     [-82.52, 129.31, 782.49]
 ])
 
+# たわみ補正用の2点
+# [x, y, z] の形式で入力
+deflection_point1 = np.array([0, -97.42, -531.8])   # 1点目の座標
+deflection_point2 = np.array([0, -96.33, -1003.8])  # 2点目の座標
+
 def calculate_point_distances(source, target):
     """2つの点群間の各点の距離を計算"""
     distances = np.linalg.norm(source - target, axis=1)
@@ -240,86 +245,189 @@ def save_detailed_results(results, filename):
         f.write("-----------------\n")
         f.write(df.describe().to_string())
 
+def calculate_deflection_coefficient(point1, point2):
+    """
+    2点からたわみ係数を計算
+    point1: [x1, y1, z1] 1点目の座標
+    point2: [x2, y2, z2] 2点目の座標
+    戻り値: たわみ係数 (mm/mm)
+    """
+    # X座標の差分
+    dx = point2[0] - point1[0]
+    # Z座標の差分
+    dz = point2[2] - point1[2]
+    
+    # たわみ係数を計算 (dz/dx)
+    if dx != 0:
+        deflection_coefficient = dz / dx
+    else:
+        deflection_coefficient = 0
+        
+    return deflection_coefficient
+
+def correct_couch_deflection(points, reference_point1=None, reference_point2=None):
+    """
+    カウチのたわみを補正
+    points: 補正する点群
+    reference_point1: たわみ計算用の基準点1 [x1, y1, z1]
+    reference_point2: たわみ計算用の基準点2 [x2, y2, z2]
+    """
+    if reference_point1 is None or reference_point2 is None:
+        # デフォルトでは最初と最後の点を使用
+        reference_point1 = points[0]
+        reference_point2 = points[-1]
+    
+    # たわみ係数を計算
+    deflection_coefficient = calculate_deflection_coefficient(reference_point1, reference_point2)
+    print(f"   - 基準点1: X={reference_point1[0]:.1f}, Z={reference_point1[2]:.1f}")
+    print(f"   - 基準点2: X={reference_point2[0]:.1f}, Z={reference_point2[2]:.1f}")
+    print(f"   - 計算されたたわみ係数: {deflection_coefficient:.6f} mm/mm")
+    
+    corrected_points = points.copy()
+    # X座標に基づいてZ座標を補正
+    x_offset = reference_point1[0]  # 基準点1のX座標を基準にする
+    corrected_points[:, 2] -= deflection_coefficient * (corrected_points[:, 0] - x_offset)
+    return corrected_points
+
+def visualize_deflection_correction(points, corrected_points):
+    """たわみ補正の可視化"""
+    plt.figure(figsize=(10, 6))
+    plt.scatter(points[:, 0], points[:, 2], label='補正前', c='blue')
+    plt.scatter(corrected_points[:, 0], corrected_points[:, 2], label='補正後', c='red')
+    
+    # 補正前後の線形フィット
+    coef_orig = np.polyfit(points[:, 0], points[:, 2], 1)
+    coef_corr = np.polyfit(corrected_points[:, 0], corrected_points[:, 2], 1)
+    
+    x_range = np.linspace(min(points[:, 0]), max(points[:, 0]), 100)
+    plt.plot(x_range, np.polyval(coef_orig, x_range), '--', c='blue', label='補正前の傾向')
+    plt.plot(x_range, np.polyval(coef_corr, x_range), '--', c='red', label='補正後の傾向')
+    
+    plt.xlabel('X位置 (mm)')
+    plt.ylabel('Z位置 (mm)')
+    plt.title('カウチのたわみ補正')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(f"deflection_correction_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+    plt.close()
+
 # ================================================
-# 1. 初期評価（変換前の相対距離の保存性）
+# メイン処理
 # ================================================
+print("\n=== 点群位置合わせプロセス開始 ===")
+
+# ================================================
+# 1. カウチのたわみ補正
+# ================================================
+print("\n1. カウチのたわみ補正")
+print("   - CT点群に対してたわみ補正を適用")
+
+# 利用可能な点の表示
+print("\n利用可能なCT点群の座標:")
+for i, point in enumerate(ct_points):
+    print(f"点{i+1}: X={point[0]:.1f}, Y={point[1]:.1f}, Z={point[2]:.1f}")
+
+ct_points_original = ct_points.copy()
+ct_points = correct_couch_deflection(ct_points, deflection_point1, deflection_point2)
+visualize_deflection_correction(ct_points_original, ct_points)
+print("   - たわみ補正の結果を図として保存")
+print("   - 補正前後のZ座標の変化:")
+for i in range(len(ct_points)):
+    diff = ct_points[i, 2] - ct_points_original[i, 2]
+    print(f"     点{i+1}: {diff:.3f} mm")
+
+# ================================================
+# 2. 初期評価
+# ================================================
+print("\n2. 初期評価")
+print("   - 変換前の相対距離の保存性を計算")
 initial_source_distances = calculate_relative_distances(gaussian_points)
 initial_target_distances = calculate_relative_distances(ct_points)
 initial_mean_error, initial_std_error = calculate_distance_preservation_error(
     initial_source_distances, initial_target_distances)
-print("初期の相対距離保存性:")
-print(f"平均誤差: {initial_mean_error:.6f}")
-print(f"標準偏差: {initial_std_error:.6f}")
+print(f"   - 平均誤差: {initial_mean_error:.6f}")
+print(f"   - 標準偏差: {initial_std_error:.6f}")
 
 # ================================================
-# 2. 重心位置合わせ
+# 3. 重心位置合わせ
 # ================================================
+print("\n3. 重心位置合わせ")
+print("   - ガウシャン点群と CT点群の重心を計算")
 source_centroid = np.mean(gaussian_points, axis=0)
 target_centroid = np.mean(ct_points, axis=0)
 centered_gaussian = gaussian_points - source_centroid
 centered_ct = ct_points - target_centroid
+print("   - 両点群を重心中心に移動")
 
 # ================================================
-# 3. スケール補正（相対距離に基づく）
+# 4. スケール補正
 # ================================================
+print("\n4. スケール補正")
+print("   - 相対距離に基づくスケール係数の計算")
 scale_factor = calculate_scale_factor(centered_gaussian, centered_ct)
 scaled_gaussian = centered_gaussian * scale_factor
-print("\n計算されたスケールファクター:", scale_factor)
+print(f"   - 計算されたスケール係数: {scale_factor:.6f}")
 
-# スケール補正後の相対距離保存性
+# スケール補正後の評価
 scaled_distances = calculate_relative_distances(scaled_gaussian)
 scale_mean_error, scale_std_error = calculate_distance_preservation_error(
     scaled_distances, initial_target_distances)
-print("スケール補正後の相対距離保存性:")
-print(f"平均誤差: {scale_mean_error:.6f}")
-print(f"標準偏差: {scale_std_error:.6f}")
+print("   - スケール補正後の誤差評価:")
+print(f"     - 平均誤差: {scale_mean_error:.6f}")
+print(f"     - 標準偏差: {scale_std_error:.6f}")
 
 # ================================================
-# 4. 回転補正（SVD）
+# 5. 回転補正
 # ================================================
+print("\n5. 回転補正（SVD法）")
+print("   - 最適な回転行列を計算")
 H = np.dot(scaled_gaussian.T, centered_ct)
 U, S, Vt = np.linalg.svd(H)
 rotation_matrix = np.dot(Vt.T, U.T)
 
 if np.linalg.det(rotation_matrix) < 0:
+    print("   - 右手系の保持のため行列を調整")
     Vt[-1, :] *= -1
     rotation_matrix = np.dot(Vt.T, U.T)
 
-# 回転角度の計算（オイラー角）
 r = Rotation.from_matrix(rotation_matrix)
 euler_angles = r.as_euler('xyz', degrees=True)
-print("\n推定された回転角度 (xyz, 度):", euler_angles)
+print(f"   - 推定された回転角度 (xyz, 度): {euler_angles}")
 
 rotated_gaussian = np.dot(scaled_gaussian, rotation_matrix.T)
 
-# 回転後の相対距離保存性
+# 回転後の評価
 rotated_distances = calculate_relative_distances(rotated_gaussian)
 rotation_mean_error, rotation_std_error = calculate_distance_preservation_error(
     rotated_distances, initial_target_distances)
-print("回転補正後の相対距離保存性:")
-print(f"平均誤差: {rotation_mean_error:.6f}")
-print(f"標準偏差: {rotation_std_error:.6f}")
+print("   - 回転補正後の誤差評価:")
+print(f"     - 平均誤差: {rotation_mean_error:.6f}")
+print(f"     - 標準偏差: {rotation_std_error:.6f}")
 
 # ================================================
-# 5. 最終平行移動
+# 6. 最終平行移動
 # ================================================
+print("\n6. 最終平行移動")
+print("   - 重心位置に基づく平行移動を適用")
 translated_gaussian = rotated_gaussian + target_centroid
 
 # プロクルステス誤差の計算
 procrustes_error = calculate_procrustes_error(translated_gaussian, ct_points)
-print(f"\nプロクルステス誤差: {procrustes_error:.6f}")
+print(f"   - プロクルステス誤差: {procrustes_error:.6f}")
 
 # ================================================
-# 6. ICPによる微調整
+# 7. ICPによる微調整
 # ================================================
+print("\n7. ICPによる微調整")
+print("   - Open3Dを使用したICPアルゴリズムの適用")
 source = o3d.geometry.PointCloud()
 source.points = o3d.utility.Vector3dVector(translated_gaussian)
 
 target = o3d.geometry.PointCloud()
 target.points = o3d.utility.Vector3dVector(ct_points)
 
-threshold = estimate_initial_threshold(translated_gaussian, ct_points)
-print(f"\n推定されたICP閾値: {threshold:.2f}mm")
+threshold = 5.0  # 固定閾値を使用
+print(f"   - 使用するICP閾値: {threshold:.2f}mm")
 
 reg_p2p = o3d.pipelines.registration.registration_icp(
     source, target, threshold,
@@ -329,44 +437,62 @@ reg_p2p = o3d.pipelines.registration.registration_icp(
 )
 
 # ================================================
-# 7. 最終評価
+# 8. 最終評価
 # ================================================
+print("\n8. 最終評価")
 source.transform(reg_p2p.transformation)
 final_points = np.asarray(source.points)
 
 # 最終的な誤差評価
 final_distances = calculate_point_distances(final_points, ct_points)
-print("\n最終的な点ごとの誤差:", final_distances)
-print(f"最終的な平均誤差: {np.mean(final_distances):.3f} ± {np.std(final_distances):.3f} mm")
+print("   - 点ごとの最終誤差:")
+for i, dist in enumerate(final_distances):
+    print(f"     点{i+1}: {dist:.3f} mm")
+print(f"   - 最終平均誤差: {np.mean(final_distances):.3f} ± {np.std(final_distances):.3f} mm")
 
 # 正規性の評価
-p_value = visualize_distances(final_distances, "Final Registration Distances")
-print(f"誤差分布の正規性検定 p値: {p_value:.4f}")
+p_value = visualize_distances(final_distances, "最終位置合わせ距離")
+print(f"   - 誤差分布の正規性検定 p値: {p_value:.4f}")
 
-# 結果の保存
-with open(f"registration_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt", "w") as f:
-    f.write("Registration Results\n")
-    f.write("===================\n\n")
-    f.write("Initial Analysis\n")
-    f.write(f"Initial relative distance preservation error: {initial_mean_error:.6f} ± {initial_std_error:.6f}\n\n")
+# ================================================
+# 9. 結果の保存
+# ================================================
+print("\n9. 結果の保存")
+filename = f"registration_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+print(f"   - 詳細な結果を保存: {filename}")
+with open(filename, "w") as f:
+    f.write("位置合わせ結果\n")
+    f.write("==============\n\n")
+    f.write("初期評価\n")
+    f.write(f"初期相対距離保存性の誤差: {initial_mean_error:.6f} ± {initial_std_error:.6f}\n\n")
     
-    f.write("Scale Analysis\n")
-    f.write(f"Calculated scale factor: {scale_factor:.6f}\n")
-    f.write(f"Scale relative distance preservation error: {scale_mean_error:.6f} ± {scale_std_error:.6f}\n\n")
+    f.write("スケール解析\n")
+    f.write(f"計算されたスケール係数: {scale_factor:.6f}\n")
+    f.write(f"スケール補正後の相対距離保存性: {scale_mean_error:.6f} ± {scale_std_error:.6f}\n\n")
     
-    f.write("Rotation Analysis\n")
-    f.write(f"Euler angles (xyz, degrees): {euler_angles}\n")
-    f.write(f"Rotation matrix:\n{rotation_matrix}\n")
-    f.write(f"Rotation relative distance preservation error: {rotation_mean_error:.6f} ± {rotation_std_error:.6f}\n\n")
+    f.write("回転解析\n")
+    f.write(f"オイラー角 (xyz, 度): {euler_angles}\n")
+    f.write(f"回転行列:\n{rotation_matrix}\n")
+    f.write(f"回転補正後の相対距離保存性: {rotation_mean_error:.6f} ± {rotation_std_error:.6f}\n\n")
     
-    f.write("Final Analysis\n")
-    f.write(f"Procrustes error: {procrustes_error:.6f}\n")
-    f.write(f"Final mean error: {np.mean(final_distances):.3f} ± {np.std(final_distances):.3f} mm\n")
-    f.write(f"Error distribution normality test p-value: {p_value:.4f}\n")
-    f.write(f"Point-wise errors: {final_distances}\n")
+    f.write("最終評価\n")
+    f.write(f"プロクルステス誤差: {procrustes_error:.6f}\n")
+    f.write(f"最終平均誤差: {np.mean(final_distances):.3f} ± {np.std(final_distances):.3f} mm\n")
+    f.write(f"誤差分布の正規性検定 p値: {p_value:.4f}\n")
+    f.write(f"点ごとの誤差: {final_distances}\n")
+
+# ================================================
+# 10. 可視化
+# ================================================
+print("\n10. 3D可視化")
+print("   - 青: 変換後のガウシャン点群")
+print("   - 緑: CT点群")
+print("   - ウィンドウを閉じると処理が完了します")
 
 # 最終的な可視化
 o3d.visualization.draw_geometries([
     source.paint_uniform_color([0, 0, 1]),  # 青
     target.paint_uniform_color([0, 1, 0])   # 緑
 ], window_name="最終結果")
+
+print("\n=== 処理完了 ===")
