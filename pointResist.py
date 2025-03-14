@@ -14,6 +14,7 @@ gaussian_points = np.array([
     [5.922,3.807,-0.368]
 ])
 
+
 ct_points = np.array([
     [-20.07, -266.85, -611.8],
     [52.25, -266.46,-683.78],
@@ -313,6 +314,13 @@ print(f"   - 標準偏差: {std_error:.3f}mm")
 print(f"   - 最大誤差: {max_error:.3f}mm")
 print(f"   - 最小誤差: {min_error:.3f}mm")
 
+print("\n   - 各点の誤差:")
+for i, (fp, cp, dist) in enumerate(zip(final_points, ct_points, final_distances)):
+    print(f"     点{i+1}:")
+    print(f"       ガウシャン点群: [{fp[0]:.3f}, {fp[1]:.3f}, {fp[2]:.3f}]")
+    print(f"       CT点群: [{cp[0]:.3f}, {cp[1]:.3f}, {cp[2]:.3f}]")
+    print(f"       誤差: {dist:.3f}mm")
+
 # 相対距離の保存性も評価
 final_source_distances = calculate_relative_distances(final_points)
 final_target_distances = calculate_relative_distances(ct_points)
@@ -322,6 +330,18 @@ final_mean_preservation_error, final_std_preservation_error = calculate_distance
 print("\n   - 相対距離の保存性:")
 print(f"   - 平均誤差: {final_mean_preservation_error:.6f}")
 print(f"   - 標準偏差: {final_std_preservation_error:.6f}")
+
+print("\n   - 点間の相対距離:")
+n_points = len(final_points)
+for i in range(n_points):
+    for j in range(i+1, n_points):
+        source_dist = final_source_distances[i,j]
+        target_dist = final_target_distances[i,j]
+        diff = abs(source_dist - target_dist)
+        print(f"     点{i+1}-点{j+1}間:")
+        print(f"       ガウシャン点群の距離: {source_dist:.3f}mm")
+        print(f"       CT点群の距離: {target_dist:.3f}mm")
+        print(f"       差分: {diff:.3f}mm")
 
 # アニメーションの作成と保存
 print("\n作成したアニメーションを保存中...")
