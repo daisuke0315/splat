@@ -8,12 +8,11 @@ import matplotlib.animation as animation
 
 # ガウシャン座標とCT座標のデータ
 gaussian_points = np.array([
-    [-2.73, 6.838, 4.019],
-    [-2.612,7.06, 0.946],
-    [5.298, 5.111,-2.845],
-    [4.223,5.662,4.185]
+    [-5.302, 4.635, -1.271],
+    [-2.997,4.635, -2.45],
+    [3.431, 2.868,0.424],
+    [2.865,2.482,1.726]
 ])
-
 
 ct_points = np.array([
     [-20.07, -266.85, -611.8],
@@ -309,35 +308,39 @@ std_error = np.std(final_distances)
 max_error = np.max(final_distances)
 min_error = np.min(final_distances)
 
-print(f"   - 対応点間の誤差統計:")
+print("\n   - 対応点ごとの位置合わせ誤差（重要）:")
+point_names = ["左上", "右上", "右下", "左下"]
+for i, (fp, cp, dist) in enumerate(zip(final_points, ct_points, final_distances)):
+    print(f"\n     点{i+1} ({point_names[i]}):")
+    print(f"       位置合わせ後の座標:")
+    print(f"         ガウシャン点群: [{fp[0]:.3f}, {fp[1]:.3f}, {fp[2]:.3f}]")
+    print(f"         CT点群: [{cp[0]:.3f}, {cp[1]:.3f}, {cp[2]:.3f}]")
+    print(f"       絶対距離誤差: {dist:.3f}mm")
+    # 座標ごとの誤差も計算
+    coord_diff = np.abs(fp - cp)
+    print(f"       座標ごとの誤差:")
+    print(f"         X軸方向: {coord_diff[0]:.3f}mm")
+    print(f"         Y軸方向: {coord_diff[1]:.3f}mm")
+    print(f"         Z軸方向: {coord_diff[2]:.3f}mm")
+
+print("\n   - 全体の位置合わせ精度:")
 print(f"     - 平均誤差: {mean_error:.3f}mm")
 print(f"     - 標準偏差: {std_error:.3f}mm")
 print(f"     - 最大誤差: {max_error:.3f}mm")
 print(f"     - 最小誤差: {min_error:.3f}mm")
 
-print("\n   - 対応点ごとの誤差:")
-point_names = ["左上", "右上", "右下", "左下"]
-for i, (fp, cp, dist) in enumerate(zip(final_points, ct_points, final_distances)):
-    print(f"     点{i+1} ({point_names[i]}):")
-    print(f"       ガウシャン点群: [{fp[0]:.3f}, {fp[1]:.3f}, {fp[2]:.3f}]")
-    print(f"       CT点群: [{cp[0]:.3f}, {cp[1]:.3f}, {cp[2]:.3f}]")
-    print(f"       誤差: {dist:.3f}mm")
-    # 座標ごとの誤差も計算
-    coord_diff = np.abs(fp - cp)
-    print(f"       座標ごとの誤差: X={coord_diff[0]:.3f}mm, Y={coord_diff[1]:.3f}mm, Z={coord_diff[2]:.3f}mm")
-
-# 相対距離の保存性も評価
+# 相対距離の保存性も評価（補助的な情報）
 final_source_distances = calculate_relative_distances(final_points)
 final_target_distances = calculate_relative_distances(ct_points)
 final_mean_preservation_error, final_std_preservation_error = calculate_distance_preservation_error(
     final_source_distances, final_target_distances)
 
-print("\n   - 相対距離の保存性:")
-print(f"     - 平均誤差: {final_mean_preservation_error:.6f}")
-print(f"     - 標準偏差: {final_std_preservation_error:.6f}")
+print("\n   - 形状の保存性（補助的な情報）:")
+print(f"     - 相対距離の平均誤差: {final_mean_preservation_error:.6f}")
+print(f"     - 相対距離の標準偏差: {final_std_preservation_error:.6f}")
 
-print("\n   - 対応する辺の長さの比較:")
-n_points = len(final_points)  # 点の数を定義
+print("\n   - 辺の長さの比較（参考値）:")
+n_points = len(final_points)
 for i in range(n_points):
     for j in range(i+1, n_points):
         source_dist = final_source_distances[i,j]
