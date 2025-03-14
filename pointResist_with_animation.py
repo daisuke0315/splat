@@ -144,11 +144,15 @@ def create_registration_animation(all_points_history, title="Point Cloud Registr
         ax.set_ylim(mid_y - max_range, mid_y + max_range)
         ax.set_zlim(mid_z - max_range, mid_z + max_range)
     
-    anim = FuncAnimation(fig, update, frames=len(all_points_history),
-                        interval=2000, blit=False)
+    # 全体で約1分になるように調整
+    # 8ステップで構成されているので、1ステップあたり約7.5秒
+    frame_interval = 7500  # ミリ秒
     
-    # アニメーションを保存
-    writer = animation.FFMpegWriter(fps=1, bitrate=1800)
+    anim = FuncAnimation(fig, update, frames=len(all_points_history),
+                        interval=frame_interval, blit=False)
+    
+    # アニメーションを保存（1分用の設定）
+    writer = animation.FFMpegWriter(fps=1/7.5, bitrate=2400)  # 7.5秒/フレーム
     anim.save('registration_process.mp4', writer=writer)
     plt.close()
 
